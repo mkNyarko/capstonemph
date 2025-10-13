@@ -1,10 +1,10 @@
 # Capstone Project Data Analysis
  
 ## Project Description
-This repository includes the cleaned FAERS dataset for capstone project and R code used to analyze it. The project aims to assess the real-world adverse event patterns for Semaglutide between Older Adults and Younger Adults in the US in 2024.
+This repository includes the cleaned FAERS dataset for capstone project and R code used to analyze it. The project aims to assess the real-world adverse event patterns for Semaglutide between Older Adults and Younger Adults in the US in 2024
 
 ## Files Included
-- `semaglutide_cleanPS_capstone.csv`: Cleaned version of the FAERS 2024 dataset
+- `semaglutide_cleanPS_capstone.csv`: Cleaned version of the FAERS 2024 dataset, including only cases where Semaglutide is a primary suspect
 - `capstone_analysis_code.Rmd`: R Markdown used to summarize and visualize the data
 - `README.md`: This file
  
