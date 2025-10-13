@@ -9,3 +9,16 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+library(readr)
+library(dplyr)
+library(tidyverse)
+```
+
+```{r, message=FALSE, warning=FALSE}
+# Loading the dataset from Github Repository
+url <- "https://raw.githubusercontent.com/mkNyarko/capstonemph/refs/heads/main/semaglutide_cleanPS_capstone.csv"
+data <- read_csv(url)
+head(data)
+```
+
