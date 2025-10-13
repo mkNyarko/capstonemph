@@ -21,6 +21,6 @@ This repository includes the cleaned FAERS dataset for capstone project and R co
 4. Run the script
  
 ## Author
-- Name: MAXWELL NYARKO  
-- Course: CAPSTONE PROJECT  
-- Date: OCTOBER 2025
+- Name: Maxwell Nyarko  
+- Course: MPH Capstone Project  
+- Date: October 2025
