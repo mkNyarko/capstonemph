@@ -13,12 +13,134 @@ knitr::opts_chunk$set(echo = TRUE)
 library(readr)
 library(dplyr)
 library(tidyverse)
+library(gtsummary)
+library(labelled)
+
 ```
 
 ```{r, message=FALSE, warning=FALSE}
 # Loading the dataset from Github Repository
 url <- "https://raw.githubusercontent.com/mkNyarko/capstonemph/refs/heads/main/semaglutide_cleanPS_capstone.csv"
-data <- read_csv(url)
+semaglutide_cleanPS_capstone <- read_csv(url)
 head(data)
 ```
+
+```{r}
+summary(semaglutide_cleanPS_capstone)
+```
+
+```{r}
+# RE-CONVERTING ALL VARIABLES TO NUMERIC, FACTOR, CHARACTER OR DATE VARIABLES AS NEEDED
+
+semaglutide_cleanPS_capstone <- semaglutide_cleanPS_capstone %>%
+  mutate(
+    # Identifiers
+    caseid = as.character(caseid),               # unique ID, not numeric
+    caseversion = as.numeric(caseversion),       # version number for updates
+    
+    # Demographics
+    age = as.numeric(age),                       # continuous variable (years)
+    age_group = factor(age_group, 
+                       levels = c("YOUNGER ADULTS (18–64)", "OLDER ADULTS (≥65)")),  # categorical
+    age_cod = as.character(age_cod),             # usually "YR", "DEC", etc.
+    sex = factor(sex, levels = c("M", "F", "UNK")),                    # categorical (male, female, unknown)
+    wt = as.numeric(wt),                         # continuous (kg)
+    wt_cod = as.character(wt_cod),               # usually "KG" or similar
+    
+    # Reporter / country
+    reporter_country = factor(reporter_country), # categorical (e.g., US)
+    occr_country = factor(occr_country),         # location of occurrence
+    
+    # Drug info
+    drugname = factor(drugname),                 # categorical (brand)
+    drug_standardized = factor(drug_standardized),      # categorical (brand)
+    prod_ai = as.character(prod_ai),             # active ingredient(s)
+    dose_amt = as.numeric(dose_amt),             # numeric dose
+    dose_unit = as.character(dose_unit),         # dose unit text (mg, ml, etc.)
+    role_cod = factor(role_cod, levels = c("PS", "SS", "C", "I")),     # primary/secondary suspect roles
+    
+    # Event info
+    pt = factor(pt),                             # MedDRA-coded preferred term (event)
+    outc_cod = factor(outc_cod),                 # outcome codes (DE, HO, OT, etc.)
+    event_dt = as.Date(as.character(event_dt), format = "%Y%m%d"),     # date of event
+    rept_dt = as.Date(as.character(rept_dt), format = "%Y%m%d"),       # date of report
+    quarter = factor(quarter, 
+                     levels = c("2024Q1", "2024Q2", "2024Q3", "2024Q4"))  # time period
+  )
+
+summary(semaglutide_cleanPS_capstone)
+```
+
+```{r descriptives-table, message=FALSE, warning=FALSE}
+
+# If not already loaded:
+# data <- read_csv("semaglutide_cleanPS_capstone.csv")
+
+# Add readable labels for variables
+var_label(data$age_group) <- "Age group"
+var_label(data$sex)       <- "Sex"
+var_label(data$wt)        <- "Weight (kg)"
+var_label(data$dose_amt)  <- "Dose amount"
+var_label(data$drugname)  <- "Drug name"
+var_label(data$outc_cod)  <- "Outcome code"
+var_label(data$quarter)   <- "Quarter of report"
+var_label(data$pt)        <- "Preferred term (Adverse event type)"
+
+# Create descriptive summary table grouped by age group
+table1 <- data %>%
+  select(age_group, sex, wt, dose_amt, drugname, pt, outc_cod, quarter) %>%
+  tbl_summary(
+    by = age_group,
+    label = list(
+      sex ~ "Sex",
+      wt ~ "Weight (kg)",
+      dose_amt ~ "Dose amount",
+      drugname ~ "Reported drug",
+      pt ~ "Preferred term (Adverse event type)",
+      outc_cod ~ "Outcome category",
+      quarter ~ "Quarter of report"
+    ),
+    statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    missing = "no"
+  ) %>%
+  modify_header(label ~ "**Variable**") %>%
+  modify_caption("**Table 1. Descriptive Characteristics of Reported Semaglutide Adverse Event Cases by Age Group, 2024 (FAERS Data)**") %>%
+  bold_labels()
+
+# Display the table nicely in R Markdown
+table1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
