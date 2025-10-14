@@ -15,14 +15,17 @@ library(dplyr)
 library(tidyverse)
 library(gtsummary)
 library(labelled)
-
+library(gt)
+library(forcats)
+library(stringr)
+library(flextable)
 ```
 
 ```{r, message=FALSE, warning=FALSE}
 # Loading the dataset from Github Repository
 url <- "https://raw.githubusercontent.com/mkNyarko/capstonemph/refs/heads/main/semaglutide_cleanPS_capstone.csv"
 semaglutide_cleanPS_capstone <- read_csv(url)
-head(data)
+head(semaglutide_cleanPS_capstone)
 ```
 
 ```{r}
@@ -72,30 +75,27 @@ summary(semaglutide_cleanPS_capstone)
 ```
 
 ```{r descriptives-table, message=FALSE, warning=FALSE}
-
-# If not already loaded:
-# data <- read_csv("semaglutide_cleanPS_capstone.csv")
-
+# DESCRIPTIVES FOR ENTIRE DATA SET
 # Add readable labels for variables
-var_label(data$age_group) <- "Age group"
-var_label(data$sex)       <- "Sex"
-var_label(data$wt)        <- "Weight (kg)"
-var_label(data$dose_amt)  <- "Dose amount"
-var_label(data$drugname)  <- "Drug name"
-var_label(data$outc_cod)  <- "Outcome code"
-var_label(data$quarter)   <- "Quarter of report"
-var_label(data$pt)        <- "Preferred term (Adverse event type)"
+var_label(semaglutide_cleanPS_capstone$age_group) <- "Age group"
+var_label(semaglutide_cleanPS_capstone$sex)       <- "Sex"
+var_label(semaglutide_cleanPS_capstone$wt)        <- "Weight (kg)"
+var_label(semaglutide_cleanPS_capstone$dose_amt)  <- "Dose amount"
+var_label(semaglutide_cleanPS_capstone$drug_standardized)  <- "Standardized drug name"
+var_label(semaglutide_cleanPS_capstone$outc_cod)  <- "Outcome code"
+var_label(semaglutide_cleanPS_capstone$quarter)   <- "Quarter of report"
+var_label(semaglutide_cleanPS_capstone$pt)        <- "Preferred term (Adverse event type)"
 
 # Create descriptive summary table grouped by age group
-table1 <- data %>%
-  select(age_group, sex, wt, dose_amt, drugname, pt, outc_cod, quarter) %>%
+table1 <- semaglutide_cleanPS_capstone %>%
+  select(age_group, sex, wt, dose_amt, drug_standardized, pt, outc_cod, quarter) %>%
   tbl_summary(
     by = age_group,
     label = list(
       sex ~ "Sex",
       wt ~ "Weight (kg)",
       dose_amt ~ "Dose amount",
-      drugname ~ "Reported drug",
+      drug_standardized ~ "Reported drug",
       pt ~ "Preferred term (Adverse event type)",
       outc_cod ~ "Outcome category",
       quarter ~ "Quarter of report"
@@ -112,10 +112,13 @@ table1 <- data %>%
 
 # Display the table nicely in R Markdown
 table1
+```
 
+```{r export-word, eval=FALSE}
 
-
-
+tbl <- as_flex_table(table1)
+flextable::save_as_docx(tbl, path = "Table1_Semaglutide_Descriptives.docx")
+```
 
 
 
