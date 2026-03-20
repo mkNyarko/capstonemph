@@ -10,8 +10,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+# Uploading packages
+
 library(readr)
-library(dplyr)
+library(dplyr) #cleaning
 library(tidyverse)
 library(gtsummary)
 library(labelled)
@@ -19,6 +21,17 @@ library(gt)
 library(forcats)
 library(stringr)
 library(flextable)
+library(tidyr)
+library(data.table)
+library(lubridate)
+library(stringr)
+library(officer)
+library(nnet) #multinomial regression
+library(broom) #tidy results
+library(pscl) #assessing model fit (McFadden pseudo r square)
+library(ggplot2) #plots
+library(rvg) #plots
+library(gdtools)
 ```
 
 ```{r, message=FALSE, warning=FALSE}
@@ -35,7 +48,7 @@ summary(semaglutide_cleanPS_capstone)
 ```{r}
 # RE-CONVERTING ALL VARIABLES TO NUMERIC, FACTOR, CHARACTER OR DATE VARIABLES AS NEEDED
 
-semaglutide_cleanPS_capstone <- semaglutide_cleanPS_capstone %>%
+semaglutide_cleanPS_capstone2 <- semaglutide_cleanPS_capstone %>%
   mutate(
     # Identifiers
     caseid = as.character(caseid),               # unique ID, not numeric
@@ -71,60 +84,1126 @@ semaglutide_cleanPS_capstone <- semaglutide_cleanPS_capstone %>%
                      levels = c("2024Q1", "2024Q2", "2024Q3", "2024Q4"))  # time period
   )
 
-summary(semaglutide_cleanPS_capstone)
+summary(semaglutide_cleanPS_capstone2)
 ```
 
-```{r descriptives-table, message=FALSE, warning=FALSE}
-# DESCRIPTIVES FOR ENTIRE DATA SET
-# Add readable labels for variables
-var_label(semaglutide_cleanPS_capstone$age_group) <- "Age group"
-var_label(semaglutide_cleanPS_capstone$sex)       <- "Sex"
-var_label(semaglutide_cleanPS_capstone$wt)        <- "Weight (kg)"
-var_label(semaglutide_cleanPS_capstone$dose_amt)  <- "Dose amount"
-var_label(semaglutide_cleanPS_capstone$drug_standardized)  <- "Standardized drug name"
-var_label(semaglutide_cleanPS_capstone$outc_cod)  <- "Outcome code"
-var_label(semaglutide_cleanPS_capstone$quarter)   <- "Quarter of report"
-var_label(semaglutide_cleanPS_capstone$pt)        <- "Preferred term (Adverse event type)"
+```{r}
+# Dropping event and report dates
 
-# Create descriptive summary table grouped by age group
-table1 <- semaglutide_cleanPS_capstone %>%
-  select(age_group, sex, wt, dose_amt, drug_standardized, pt, outc_cod, quarter) %>%
+semaglutide_cleanPS_capstone2 <- semaglutide_cleanPS_capstone2 %>%
+  select(-event_dt, -rept_dt)
+
+summary(semaglutide_cleanPS_capstone2)
+```
+
+```{r}
+# Cleaning out NR and Other from outc_cod
+
+semaglutide_cleanPS_capstone2 <- semaglutide_cleanPS_capstone2 %>%
+  filter(!outc_cod %in% c("NR", "Other")) %>%
+  mutate(outc_cod = droplevels(outc_cod))
+
+summary(semaglutide_cleanPS_capstone2)
+```
+
+```{r}
+# Keeping RI (Required Intervention) and dropping CA (Congenital Anomaly) as CA is rare for older adults and is not relevant for this study
+
+semaglutide_cleanPS_capstone2 <- semaglutide_cleanPS_capstone2 %>%
+  filter(outc_cod %in% c("DE", "HO", "LT", "DS", "OT", "RI")) %>%
+  mutate(outc_cod = droplevels(outc_cod))
+
+summary(semaglutide_cleanPS_capstone2)
+```
+
+```{r}
+# Cleaning out NA's and Unknown from Sex Variable
+semaglutide_cleanPS_capstone2 <- semaglutide_cleanPS_capstone2 %>%
+  filter(
+    !is.na(sex),
+    sex != "UNK"
+  ) %>%
+  mutate(
+    sex = droplevels(sex)
+  )
+
+summary(semaglutide_cleanPS_capstone2)
+```
+
+
+```{r}
+#Re-labelling outc_cod to full names variable "outc_cod_full"
+
+semaglutide_cleanPS_capstone2 <- semaglutide_cleanPS_capstone2 %>%
+  mutate(
+    outc_cod_full = recode(
+      outc_cod,
+      "DE" = "Death",
+      "HO" = "Hospitalization",
+      "LT" = "Life-threatening",
+      "DS" = "Disability",
+      "RI" = "Required intervention",
+      "OT" = "Other serious outcome",
+      .default = NA_character_
+    )
+  ) %>%
+  relocate(outc_cod_full, .after = outc_cod)
+summary(semaglutide_cleanPS_capstone2)
+```
+
+```{r}
+# Creating pt groupings
+
+# Psychiatric-related PTs
+psychiatric_pts <- c(
+  "ANXIETY", "DEPRESSION", "DEPRESSED MOOD", "MAJOR DEPRESSION",
+  "SUICIDAL IDEATION", "SUICIDE ATTEMPT", "COMPLETED SUICIDE",
+  "PANIC ATTACK", "INSOMNIA", "SLEEP DISORDER", "NIGHTMARE",
+  "HALLUCINATION", "HALLUCINATION, AUDITORY", "DELUSION",
+  "AGITATION", "IRRITABILITY", "MOOD ALTERED", "MOOD SWINGS",
+  "APATHY", "ANHEDONIA", "CONFUSIONAL STATE",
+  "MEMORY IMPAIRMENT", "DISTURBANCE IN ATTENTION",
+  "MENTAL DISORDER", "NERVOUSNESS", "STRESS",
+  "SELF-INJURIOUS IDEATION", "PSYCHOTIC BEHAVIOUR",
+  "EUPHORIC MOOD", "HYPOMANIA"
+)
+
+# Cardiovascular PTs
+cardiovascular_pts <- c(
+  "CARDIAC ARREST", "CARDIAC FAILURE", "CARDIAC FAILURE CONGESTIVE",
+  "ATRIAL FIBRILLATION", "ARRHYTHMIA", "TACHYCARDIA",
+  "BRADYCARDIA", "SINUS TACHYCARDIA",
+  "MYOCARDIAL INFARCTION", "PALPITATIONS",
+  "HYPERTENSION", "HYPOTENSION",
+  "CEREBROVASCULAR ACCIDENT", "ISCHAEMIC STROKE",
+  "EMBOLIC STROKE", "TRANSIENT ISCHAEMIC ATTACK",
+  "DEEP VEIN THROMBOSIS", "PULMONARY EMBOLISM",
+  "CORONARY ARTERY OCCLUSION", "HEART RATE INCREASED",
+  "HEART RATE DECREASED", "SYNCOPE", "PRESYNCOPE"
+)
+
+# Gastrointestinal & Metabolic PTs
+gi_metabolic_pts <- c(
+  "NAUSEA", "VOMITING", "DIARRHOEA", "CONSTIPATION",
+  "ABDOMINAL PAIN", "ABDOMINAL PAIN UPPER", "ABDOMINAL PAIN LOWER",
+  "DYSPEPSIA", "GASTROOESOPHAGEAL REFLUX DISEASE",
+  "ILEUS", "INTESTINAL OBSTRUCTION", "IMPAIRED GASTRIC EMPTYING",
+  "PANCREATITIS", "PANCREATITIS ACUTE", "PANCREATITIS NECROTISING",
+  "CHOLELITHIASIS", "CHOLECYSTITIS",
+  "DECREASED APPETITE", "INCREASED APPETITE",
+  "WEIGHT DECREASED", "ABNORMAL LOSS OF WEIGHT",
+  "HYPOGLYCAEMIA", "HYPERGLYCAEMIA",
+  "DIABETIC KETOACIDOSIS", "EUGLYCAEMIC DIABETIC KETOACIDOSIS",
+  "BLOOD GLUCOSE INCREASED", "BLOOD GLUCOSE DECREASED",
+  "HEPATIC ENZYME INCREASED", "DRUG-INDUCED LIVER INJURY",
+  "MALNUTRITION", "DEHYDRATION"
+)
+```
+
+```{r}
+# Creating the event_category variable
+
+semaglutide_cleanPS_capstone2 <- semaglutide_cleanPS_capstone2 %>%
+  mutate(
+    event_category = case_when(
+      pt %in% psychiatric_pts     ~ "Psychiatric-related",
+      pt %in% cardiovascular_pts  ~ "Cardiovascular",
+      pt %in% gi_metabolic_pts    ~ "Gastro-Intestinal and Metabolic",
+      TRUE                        ~ "Others"
+    )
+  )%>%
+  relocate(event_category, .after = pt)
+summary(semaglutide_cleanPS_capstone2)
+```
+
+```{r}
+# Converting event_category to factor variable
+
+semaglutide_cleanPS_capstone2 <- semaglutide_cleanPS_capstone2 %>%
+  mutate(
+    event_category = factor(event_category)                           
+  )
+
+summary(semaglutide_cleanPS_capstone2)
+```
+
+```{r}
+# Cleaning labels and factor levels to prevent % errors
+
+semaglutide_table1 <- semaglutide_cleanPS_capstone2 %>%
+  mutate(
+    age_group = factor(
+      age_group,
+      levels = c("YOUNGER ADULTS (18–64)", "OLDER ADULTS (≥65)"),
+      labels = c("Younger Adults (18–64)", "Older Adults (≥65)")
+    ),
+    sex = factor(sex, labels = c("Male", "Female")),
+    event_category = factor(
+      event_category,
+      levels = c(
+        "Gastro-Intestinal and Metabolic",
+        "Cardiovascular",
+        "Psychiatric-related",
+        "Others"
+      )
+    ),
+    outc_cod_full = factor(outc_cod_full)
+  )
+
+```
+
+```{r}
+# Generating Table 1
+
+table1 <- semaglutide_table1 %>%
+  select(
+    age_group,
+    
+    # Demographics
+    sex,
+    wt,
+    
+    # Exposure characteristics
+    dose_amt,
+    drug_standardized,
+    quarter,
+    
+    # Clinical outcomes
+    event_category,
+    outc_cod_full
+  ) %>%
   tbl_summary(
     by = age_group,
+    statistic = list(
+      all_categorical() ~ "{n} ({p}%)",
+      all_continuous() ~ "{mean} ({sd})"
+    ),
+    percent = "column",
+    missing = "no",
     label = list(
       sex ~ "Sex",
       wt ~ "Weight (kg)",
-      dose_amt ~ "Dose amount",
-      drug_standardized ~ "Reported drug",
-      pt ~ "Preferred term (Adverse event type)",
-      outc_cod ~ "Outcome category",
-      quarter ~ "Quarter of report"
-    ),
-    statistic = list(
-      all_continuous() ~ "{mean} ({sd})",
-      all_categorical() ~ "{n} ({p}%)"
-    ),
-    missing = "no"
+      dose_amt ~ "Dose Amount",
+      drug_standardized ~ "Reported Drug",
+      quarter ~ "Quarter of Report",
+      event_category ~ "Adverse Event Category",
+      outc_cod_full ~ "Outcome Category"
+    )
   ) %>%
-  modify_header(label ~ "**Variable**") %>%
-  modify_caption("**Table 1. Descriptive Characteristics of Reported Semaglutide Adverse Event Cases by Age Group, 2024 (FAERS Data)**") %>%
+  add_overall() %>%
   bold_labels()
 
-# Display the table nicely in R Markdown
+# Displaying the table in R Markdown
 table1
+
 ```
 
-```{r export-word, eval=FALSE}
+```{r}
+# Converting to publication-ready Word format
 
-tbl <- as_flex_table(table1)
-flextable::save_as_docx(tbl, path = "Table1_Semaglutide_Descriptives.docx")
+table1_flex <- as_flex_table(table1) %>%
+  autofit() %>%
+  bold(part = "header") %>%
+  bold(j = 1) %>%        # bold variable names column
+  align(align = "center", part = "all") %>%
+  valign(valign = "center", part = "all")
+
+```
+
+```{r}
+# Exporting to an editable Word document
+
+doc <- read_docx() %>%
+  body_add_par(
+    "Table 1. Demographic and Clinical Characteristics of U.S. Adults Reporting Semaglutide-Associated Adverse Events, FAERS 2024",
+    style = "heading 1"
+  ) %>%
+  body_add_flextable(table1_flex) %>%
+  body_add_par(
+    "Values are presented as n (%) unless otherwise indicated. Percentages are column percentages.",
+    style = "Normal"
+  )
+
+print(doc, target = "Table1_Semaglutide_Capstone_Updated.docx")
+
+```
+
+```{r}
+# Handling Missing Weight and Dose Amount Data by converting them to categorical variables instead of maintaining as continuous variable
+
+semaglutide_cleanPS_capstone3 <- semaglutide_table1 %>%
+  mutate(
+    wt_cat = case_when(
+      is.na(wt) ~ "Missing",
+      wt < 80 ~ "<80 kg",
+      wt >= 80 & wt < 100 ~ "80–99 kg",
+      wt >= 100 ~ "≥100 kg"
+    ),
+    dose_cat = case_when(
+      is.na(dose_amt) ~ "Missing",
+      dose_amt < 0.5 ~ "<0.5 mg",
+      dose_amt >= 0.5 & dose_amt < 1 ~ "0.5–0.99 mg",
+      dose_amt >= 1 ~ "≥1 mg"
+    )
+  )
+
+summary(semaglutide_cleanPS_capstone3)
+
+```
+
+```{r}
+# The drug_standardized variable is all upper case. Converting to Title Case
+
+semaglutide_cleanPS_capstone3 <- semaglutide_cleanPS_capstone3 %>%
+  mutate(
+    drug_standardized = drug_standardized %>%
+      as.character() %>%
+      str_to_title() %>%
+      factor()
+  )
+
+# Checking
+levels(semaglutide_cleanPS_capstone3$drug_standardized)
+
 ```
 
 
 
+```{r}
+# Re-ordering wt_cat and dose_cat
+
+semaglutide_cleanPS_capstone3 <- semaglutide_cleanPS_capstone3 %>%
+  relocate(wt_cat, .after = wt_cod) %>%
+  relocate(dose_cat, .after = dose_unit)
+
+names(semaglutide_cleanPS_capstone3)
+
+```
+
+```{r}
+# Writing the new clean dataset to a CSV file
+
+write.csv(
+  semaglutide_cleanPS_capstone3,
+  "semaglutide_cleanPS_capstone3.csv",
+  row.names = FALSE
+)
+```
+
+#New Clean Dataset for Analysis
+Number of observations = 2,427
+Number of variables = 23
+
+
+```{r}
+# Generating UPDATED Table 1 with categorical weight and dose
+
+table1_new <- semaglutide_cleanPS_capstone3 %>%
+  select(
+    age_group,
+    
+    # Demographics
+    sex,
+    wt_cat,
+    
+    # Exposure characteristics
+    dose_cat,
+    drug_standardized,
+    quarter,
+    
+    # Clinical outcomes
+    event_category,
+    outc_cod_full
+  ) %>%
+  tbl_summary(
+    by = age_group,
+    statistic = list(
+      all_categorical() ~ "{n} ({p}%)"
+    ),
+    percent = "column",
+    missing = "no",
+    label = list(
+      sex ~ "Sex",
+      wt_cat ~ "Weight Category",
+      dose_cat ~ "Dose Category",
+      drug_standardized ~ "Reported Drug",
+      quarter ~ "Quarter of Report",
+      event_category ~ "Adverse Event Category",
+      outc_cod_full ~ "Outcome Category"
+    )
+  ) %>%
+  add_overall() %>%
+  bold_labels()
+
+# Display table
+table1_new
+
+```
+
+```{r}
+# Converting to publication-ready Word format
+
+table1_new_flex <- as_flex_table(table1_new) %>%
+  autofit() %>%
+  bold(part = "header") %>%
+  bold(j = 1) %>%        # bold variable names column
+  align(align = "center", part = "all") %>%
+  valign(valign = "center", part = "all")
+
+# Exporting to an editable Word document
+
+doc2 <- read_docx() %>%
+  body_add_par(
+    "Table 1. Demographic and Clinical Characteristics of U.S. Adults Reporting Semaglutide-Associated Adverse Events, FAERS 2024",
+    style = "heading 1"
+  ) %>%
+  body_add_flextable(table1_new_flex) %>%
+  body_add_par(
+    "Values are presented as n (%) unless otherwise indicated. Percentages are column percentages.",
+    style = "Normal"
+  )
+
+print(doc2, target = "Table1_Semaglutide_Capstone_Updated2.docx")
+```
+
+```{r}
+# Generating Flow Chart for Exclusion Criteria
+
+# Flow chart as a character vector
+flow_chart <- c(
+  "             Figure 1. FAERS SEMAGLUTIDE DATA CLEANING FLOW CHART",
+  "",
+  
+  # Step 1
+  " ┌──────────────────────────────────────────────────────┐",
+  " | Raw data (4 quarters combined): n = 17,281           |",
+  " └──────────────────────────────────────────────────────┘",
+  "                     |",
+  "                     v    --> Excluded: 1,310 (Duplicates)",
+  " ┌──────────────────────────────────────────────────────┐",
+  " | After deduplication: n = 15,971                      |",
+  " └──────────────────────────────────────────────────────┘",
+  "",
+  
+  # Step 2
+  "                     |",
+  "                     v    --> Excluded: 7,904 (Missing age)",
+  " ┌──────────────────────────────────────────────────────┐",
+  " | After cleaning age variable: n = 8,067               |",
+  " └──────────────────────────────────────────────────────┘",
+  "",
+  
+  # Step 3
+  "                     |",
+  "                     v    --> Excluded: 2,765 (Non-Primary Suspect)",
+  " ┌──────────────────────────────────────────────────────┐",
+  " | After keeping Primary Suspect (PS): n = 5,302        |",
+  " └──────────────────────────────────────────────────────┘",
+  "",
+  
+  # Step 4
+  "                     |",
+  "                     v    --> Excluded: 2,698 (NR / Other outcomes)",
+  " ┌──────────────────────────────────────────────────────┐",
+  " | After outcome cleaning: n = 2,604                    |",
+  " └──────────────────────────────────────────────────────┘",
+  "",
+  
+  # Step 5
+  "                     |",
+  "                     v    --> Excluded: 3 (Congenital anomaly)",
+  " ┌──────────────────────────────────────────────────────┐",
+  " | After excluding congenital anomaly: n = 2,601        |",
+  " └──────────────────────────────────────────────────────┘",
+  "",
+  
+  # Step 6
+  "                     |",
+  "                     v    --> Excluded: 174 (Missing/unknown sex)",
+  " ┌──────────────────────────────────────────────────────┐",
+  " | Final analytic sample: n = 2,427                     |",
+  " └──────────────────────────────────────────────────────┘"
+)
+
+# Print the flow chart
+cat(flow_chart, sep = "\n")
+```
+
+```{r}
+# Writing flow chart to word
+
+flowdoc <- read_docx()
+
+for (line in flow_chart) {
+  flowdoc <- body_add_par(flowdoc, line, style = "Normal")
+}
+
+print(flowdoc, target = "Fig.1 FAERS_Flow_Chart.docx")
+```
+
+
+ANALYSIS
+
+# A. Disproportionality analyses (Signal Detection) using Reporting Odds Ratios (ROR) and Proportional Reporting Ratios (PRR) with 95% confidence intervals for major adverse event categories overall and by age and sex
+
+# Question:
+# "Are certain adverse event categories reported more frequently than expected with semaglutide?”
+
+```{r}
+# 1. Creating binary variable for each event category
+
+# ROR/PRR are both based on 2x2 tables
+# The event of interest must be compared to all other event
+
+data_ror <- semaglutide_cleanPS_capstone3 %>%
+  mutate(
+    gi_event = ifelse(event_category == "Gastro-Intestinal and Metabolic", 1, 0),
+    cardio_event = ifelse(event_category == "Cardiovascular", 1, 0),
+    psych_event = ifelse(event_category == "Psychiatric-related", 1, 0)
+  )
+```
+
+```{r}
+# 2. Building a function to compute Reporting Odds Ratios (ROR) and Proportional Reporting Ratios (PRR)
+
+compute_ror_prr <- function(data, exposure_var, event_var) {
+  
+  tab <- table(data[[exposure_var]], data[[event_var]])
+  
+  # Ensure 2x2 structure
+  if (!all(dim(tab) == c(2, 2))) return(NULL)
+  
+  a <- tab[2,2]
+  b <- tab[2,1]
+  c <- tab[1,2]
+  d <- tab[1,1]
+  
+  # ROR
+  ror <- (a / b) / (c / d)
+  se_log_ror <- sqrt(1/a + 1/b + 1/c + 1/d)
+  ci_lower <- exp(log(ror) - 1.96 * se_log_ror)
+  ci_upper <- exp(log(ror) + 1.96 * se_log_ror)
+  
+  # PRR
+  prr <- (a / (a + b)) / (c / (c + d))
+  
+  tibble(
+    ROR = ror,
+    CI_lower = ci_lower,
+    CI_upper = ci_upper,
+    PRR = prr
+  )
+}
+```
+
+```{r}
+# 3. Defining exposure variables
+
+# For exposure, comparison will be done for Age variable (Younger adults vs Older adults), and Sex variable (Male vs Female)
+
+# Converting both variables to binary variables
+
+data_ror <- data_ror %>%
+  mutate(
+    age_binary = ifelse(age_group == "Older Adults (≥65)", 1, 0),
+    sex_binary = ifelse(sex == "Female", 1, 0)
+  )
+```
+
+```{r}
+# 4. Running ROR and PRR for each event category by age
+
+results_age <- bind_rows(
+  compute_ror_prr(data_ror, "age_binary", "gi_event") %>% mutate(Event = "GI"),
+  compute_ror_prr(data_ror, "age_binary", "cardio_event") %>% mutate(Event = "Cardiovascular"),
+  compute_ror_prr(data_ror, "age_binary", "psych_event") %>% mutate(Event = "Psychiatric")
+)
+
+# label appropriately and re-arrange columns to make it Table 2 ready
+results_age <- results_age %>%
+  mutate(Group = "Age") %>%
+  select(Group, Event, ROR, CI_lower, CI_upper, PRR)
+```
+
+```{r}
+# 5. Running ROR and PRR for each event category by sex
+
+results_sex <- bind_rows(
+  compute_ror_prr(data_ror, "sex_binary", "gi_event") %>% mutate(Event = "GI"),
+  compute_ror_prr(data_ror, "sex_binary", "cardio_event") %>% mutate(Event = "Cardiovascular"),
+  compute_ror_prr(data_ror, "sex_binary", "psych_event") %>% mutate(Event = "Psychiatric")
+)
+
+# label appropriately and re-arrange columns to make it Table 2 ready
+results_sex <- results_sex %>%
+  mutate(Group = "Sex") %>%
+  select(Group, Event, ROR, CI_lower, CI_upper, PRR)
+```
+
+```{r}
+# 6. Combining the results
+
+final_results <- bind_rows(results_age, results_sex)
+
+final_results
+```
+
+```{r}
+# 7. Formatting for interpretation
+
+final_results2 <- final_results %>%
+  mutate(
+    ROR = round(ROR, 2),
+    CI = paste0("(", round(CI_lower, 2), "–", round(CI_upper, 2), ")"),
+    PRR = round(PRR, 2)
+  ) %>%
+  select(Group, Event, ROR, CI, CI_lower, CI_upper, PRR)
+
+final_results2
+```
+# Interpretation
+Compared with younger adults, older adults demonstrated significantly higher reporting odds of cardiovascular adverse events (ROR = 1.54, 95% CI: 1.03–2.29; PRR = 1.51)
+
+In contrast, gastrointestinal events (ROR = 0.71, 95% CI: 0.59–0.85) and psychiatric-related events (ROR = 0.40, 95% CI: 0.26–0.62) were reported less frequently among older adults relative to younger adults
+
+When stratified by sex, no statistically significant differences were observed in the reporting of adverse event categories between males and females, as the confidence intervals for gastrointestinal, cardiovascular, and psychiatric-related events included the null value of 1
+
+Overall, these findings suggest potential age-related differences in adverse event reporting patterns associated with semaglutide, particularly for cardiovascular events, while sex-based differences were not evident
+
+```{r}
+# 8. Exporting final results as table 2 in word format
+
+# Assigning final results to table 2
+table2 <- final_results2 %>%
+  select(Group, Event, ROR, CI, PRR) %>%
+  mutate(
+    ROR = round(ROR, 2),
+    PRR = round(PRR, 2)
+  )
+
+
+# Converting table to a Word-friendly format
+table2_ft <- flextable(table2) %>%
+  bold(part = "header") %>%
+  autofit()
+
+# Creating Word document
+doc <- read_docx()
+
+doc <- doc %>%
+  body_add_par("Table 2. Disproportionality Analysis of Adverse Event Categories by Age and Sex", 
+               style = "heading 1") %>%
+  body_add_flextable(table2_ft)
+
+# Exporting to word
+print(doc, target = "Table2_ROR_PRR_results.docx")
+
+# Display table
+table2_ft
+```
+
+# B. Multinomial logistic regression models assessing associations between age group and adverse outcome categories, adjusting for sex, quarter of report, dose category, and weight category.
+
+# Question:
+# "After adjusting for other factors, is age still associated with different adverse event categories?"
+
+```{r}
+# Keeping "Others" fixed as reference
+
+semaglutide_cleanPS_capstone3$event_category <- factor(
+  semaglutide_cleanPS_capstone3$event_category,
+  levels = c(
+    "Others",
+    "Gastro-Intestinal and Metabolic",
+    "Cardiovascular",
+    "Psychiatric-related"
+  )
+)
+```
+
+
+```{r}
+# 1. Ensuring variables for the model are factor variables
+
+data_model <- semaglutide_cleanPS_capstone3 %>%
+  mutate(
+    event_category = as.factor(event_category),
+    age_group = as.factor(age_group),
+    sex = as.factor(sex),
+    quarter = as.factor(quarter),
+    dose_cat = as.factor(dose_cat),
+    wt_cat = as.factor(wt_cat)
+  )
+```
+
+```{r}
+# 2. Setting reference categories
+
+# Outcome reference: Other
+# Age reference: Younger Adults
+# Sex reference: Male
+
+data_model <- data_model %>%
+  mutate(
+    event_category = relevel(event_category, ref = "Others"),
+    age_group = relevel(age_group, ref = "Younger Adults (18–64)"),
+    sex = relevel(sex, ref = "Male")
+  )
+```
+
+Assumptions Testing
+
+5 Assumptions
+
+- Independent observations: Assumption satisfied by deduplication step during data cleaning.
+- Predictors should not be strongly correlated with each other: Predictors (age_group, sex, quarter, dose_cat, wt_cat) are conceptually different variables. Severe multicollinearity unlikely.
+- Adequate sample size (about 10-20) per outcome category: All outcome categories have above 20 observations. Assumption satisfied. 
+- Separation. One predictor must not perfectly predict the outcome: Co-efficients are within expected ranges and standard errors are moderate across predictors, indicating no evidence of model separation or instability (see model stability block). Assumption satisfied.
+- Model convergence. The algorithm successfully estimates parameters (as seen below). Assumption met.
+
+```{r}
+# 3. Fitting the Multinomial logistic regression model
+
+multinom_model <- multinom(
+  event_category ~ age_group + sex + quarter + dose_cat + wt_cat,
+  data = data_model
+)
+
+summary(multinom_model)
+```
+Co-efficients and standard errors provided but not yet Odds Ratios
+Co-efficients and standard errors are not huge.
+
+```{r}
+# 4. Converting co-efficients to odds ratios
+
+model_results <- tidy(multinom_model) %>%
+  mutate(
+    OR = exp(estimate),
+    CI_lower = exp(estimate - 1.96 * std.error),
+    CI_upper = exp(estimate + 1.96 * std.error)
+  )
+
+model_results
+```
+
+```{r}
+# 5. Cleaning results for reporting
+
+model_results_clean <- model_results %>%
+  select(y.level, term, OR, CI_lower, CI_upper, p.value) %>%
+  mutate(
+    OR = round(OR, 2),
+    CI_lower = round(CI_lower, 2),
+    CI_upper = round(CI_upper, 2),
+    CI = paste0("(", CI_lower, "–", CI_upper, ")")
+  )
+
+model_results_clean
+```
+
+```{r}
+# 6. Making results easier to interpret by renaming columns
+
+model_results_clean <- model_results_clean %>%
+  rename(
+    Outcome = y.level,
+    Variable = term
+  )
+
+model_results_clean
+```
+
+```{r}
+# 7. Focusing on main variable of interest (Age group)
+
+age_results <- model_results_clean %>%
+  filter(grepl("age_group", Variable))
+
+age_results
+```
+# Interpretation
+
+Gastro-Intestinal and Metabolic
+Older adults had 29% lower odds of reporting gastrointestinal and metabolic adverse events compared with younger adults, relative to other types of adverse events
+The association is statistically significant as the confidence interval does not include 1
+Age group is independently associated with GI events
+
+Cardiovascular
+There was no statistically significant difference in the odds of cardiovascular adverse events between older and younger adults after adjusting for the other variables in the model.
+Although the odds ratio is slightly above 1, the confidence interval includes 1, meaning the difference could be due to chance.
+
+Psychiatric-related
+Older adults had 53% lower odds of reporting psychiatric-related adverse events compared with younger adults, relative to other adverse event types.
+The association is statistically significant as the confidence interval does not include 1
+Age group is independently associated with Psychiatric-related events
+
+```{r}
+# 8. Checking model stability
+
+summary(multinom_model)$coefficients
+summary(multinom_model)$standard.errors
+```
+# Interpretation:
+The multinomial regression model appears statistically stable, with coefficients within expected ranges and moderate standard errors across predictors, indicating no evidence of model separation or instability.
+
+```{r}
+# 9. Assessing model fit
+
+pR2(multinom_model)
+```
+#Interpretation
+
+Model fit statistics indicated that the multinomial logistic regression model improved prediction of adverse event categories compared with the null model (G² = 143.8). 
+The model converged successfully. 
+The McFadden pseudo-R² was 0.032, suggesting modest but acceptable explanatory power.
+
+```{r}
+# 10. Exporting results for Table 3
+
+table3_ft <- flextable(age_results) %>%
+  bold(part = "header") %>%
+  autofit() %>%
+  width(j = 1, width = 1.2) %>%
+  width(j = 2, width = 2.5) %>%
+  width(j = 3:6, width = 1)
+
+doc <- read_docx() %>%
+  body_add_par("Table 3. Multinomial Logistic Regression Results", style = "heading 1") %>%
+  body_add_flextable(table3_ft)
+
+print(doc, target = "Table3_multinomial_results.docx")
+
+# Display table
+table3_ft
+```
+
+# C. Assessment of interaction effects between age group and adverse event category.
+# Question:
+# "Does the association between age group and adverse event category differ by sex?"
+
+```{r}
+# 1. Confirming that the outcome is set correctly
+
+data_model$event_category <- factor(
+  data_model$event_category,
+  levels = c("Others",
+             "Gastro-Intestinal and Metabolic",
+             "Cardiovascular",
+             "Psychiatric-related")
+)
+```
+
+```{r}
+# 2. Fitting the interaction model
+
+interaction_model <- multinom(
+  event_category ~ age_group + sex + quarter + dose_cat + wt_cat +
+                   age_group:sex,
+  data = data_model
+)
+```
+
+```{r}
+# 3. Comparing models
+
+# Base model vs Interaction model
+
+anova(multinom_model, interaction_model, test = "Chisq")
+```
+# Interpretation
+
+Small likelihood ratio statistic of 0.78 indicating that the model barely changed after adding interaction term
+P-value >0.05. Interaction is not statistically significant.
+
+The relationship between age group and adverse event category does not differ by sex.
+Older vs younger adults show similar adverse event patterns in both males and females.
+
+
+# D. Sensitivity analyses evaluating robustness of findings across alternative categorizations and exclusion of select missing-data strata
+
+# Question
+# "If slight changes are made to how variables are defined or certain uncertain data are removed, do the results stay similar?"
+
+```{r}
+# 1. Creating dataset excluding missing dose
+
+sens_no_missing_dose <- semaglutide_cleanPS_capstone3 %>%
+  filter(dose_cat != "Missing")
+
+# Checking sample size
+nrow(sens_no_missing_dose)
+```
+
+```{r}
+# 2. Re-running Multinomial regression (Dose Sensitivity)
+
+model_sens_dose <- nnet::multinom(
+  event_category ~ age_group + sex + quarter + dose_cat + wt_cat,
+  data = sens_no_missing_dose
+)
+
+# Extracting results
+sens_dose_results <- broom::tidy(model_sens_dose, exponentiate = TRUE, conf.int = TRUE)
+
+# Renaming columns
+sens_dose_results <- sens_dose_results %>%
+  rename(
+    Outcome = y.level,
+    Variable = term,
+    OR = estimate
+  )
+
+
+sens_dose_results
+```
+
+```{r}
+# 3. Creating dataset excluding missing weight
+
+sens_no_missing_weight <- semaglutide_cleanPS_capstone3 %>%
+  filter(wt_cat != "Missing")
+
+# Checking sample size
+nrow(sens_no_missing_weight)
+```
+
+```{r}
+# 4. Re-running Multinomial regression (Weight sensitivity)
+
+model_sens_weight <- nnet::multinom(
+  event_category ~ age_group + sex + quarter + dose_cat + wt_cat,
+  data = sens_no_missing_weight
+)
+
+# Extracting results
+sens_weight_results <- broom::tidy(model_sens_weight, exponentiate = TRUE, conf.int = TRUE)
+
+# Renaming columns
+sens_weight_results <- sens_weight_results %>%
+  rename(
+    Outcome = y.level,
+    Variable = term,
+    OR = estimate
+  )
+
+sens_weight_results
+```
+
+```{r}
+# 5. Creating dataset excluding both missing dose and weight
+
+sens_complete_cases <- semaglutide_cleanPS_capstone3 %>%
+  filter(
+    dose_cat != "Missing",
+    wt_cat != "Missing"
+  )
+
+# Checking sample size
+nrow(sens_complete_cases)
+```
+
+```{r}
+# 6. Re-running Multinomial regression (Weight + Dose sensitivity)
+
+model_sens_complete <- nnet::multinom(
+  event_category ~ age_group + sex + quarter + dose_cat + wt_cat,
+  data = sens_complete_cases
+)
+
+# Extracting results
+sens_complete_results <- broom::tidy(model_sens_complete, exponentiate = TRUE, conf.int = TRUE)
+
+# Renaming columns
+sens_complete_results <- sens_complete_results %>%
+  rename(
+    Outcome = y.level,
+    Variable = term,
+    OR = estimate
+  )
+
+sens_complete_results
+```
+
+```{r}
+# 7. Alternative Dose Categorization
+
+semaglutide_alt_dose <- semaglutide_cleanPS_capstone3 %>%
+  mutate(
+    dose_cat_alt = case_when(
+      dose_amt < 0.5 ~ "Low dose",
+      dose_amt >= 0.5 & dose_amt < 1 ~ "Medium dose",
+      dose_amt >= 1 ~ "High dose",
+      TRUE ~ "Missing"
+    )
+  )
+```
+
+```{r}
+# Model
+model_alt_dose <- nnet::multinom(
+  event_category ~ age_group + sex + quarter + dose_cat_alt + wt_cat,
+  data = semaglutide_alt_dose
+)
+
+model_alt_dose
+```
+
+```{r}
+# 8. Comparing results of Weight + Dose sensitivity with main model
+
+main_results <- age_results %>%
+  filter(str_detect(Variable, "age_group"))
+
+sens_results <- sens_complete_results %>%
+  filter(str_detect(Variable, "age_group"))
+
+main_results
+sens_results
+```
+OR values vary between the 2 models
+No statistically significant OR reported in Weight + Dose sensitivity test
+
+```{r}
+# 9. Comparing results of Weight sensitivity with main model
+
+main_results <- age_results %>%
+  filter(str_detect(Variable, "age_group"))
+
+sens_results <- sens_weight_results %>%
+  filter(str_detect(Variable, "age_group"))
+
+main_results
+sens_results
+```
+OR values vary between the 2 models, except for psychiatry-related events
+Statistically significant OR reported in Weight sensitivity test for psychiatry-related events only
+
+
+```{r}
+# 10. Comparing results of Dose sensitivity with main model
+
+main_results <- age_results %>%
+  filter(str_detect(Variable, "age_group"))
+
+sens_results <- sens_dose_results %>%
+  filter(str_detect(Variable, "age_group"))
+
+main_results
+sens_results
+```
+OR values vary between the 2 models, except for Gastro-Intestinal and Metabolic events
+Statistically significant OR reported in Dose sensitivity test for Gastro-Intestinal and Metabolic events only
+
+
+```{r}
+# Summary table for sensitivity analysis
+
+sensitivity_summary <- bind_rows(
+  sens_dose_results %>% mutate(Model = "Exclude missing dose"),
+  sens_weight_results %>% mutate(Model = "Exclude missing weight"),
+  sens_complete_results %>% mutate(Model = "Complete cases")
+) %>%
+  filter(str_detect(Variable, "age_group"))
+
+sensitivity_summary
+```
+Summary Gastro-Intestinal and Metabolic OR = 0.66 - 1.26 for all 3 sensitivity models, OR main model = 0.71 
+Summary Cardiovascular OR = 0.83 - 1.30 for all 3 sensitivity models, OR main model = 1.15
+Summary Psychiatric-related OR = 0.13 - 0.66 , OR main model = 0.47
+
+The main model OR values fall within range of the OR values obtained from the  sensitivity models.
+
+Results are stable. Model is robust.
 
 
 
+# E. GGPLOT2 FIGURES
+
+```{r}
+# 1. Generating fig.2 Forest Plot of disproportionality signals
+
+plot1_data <- final_results2 %>%
+  filter(Group == "Age") %>%
+  mutate(Event = factor(Event, levels = rev(unique(Event))))
+
+plot1 <- ggplot(plot1_data, aes(x = ROR, y = Event)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.2) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  labs(
+    title = "Figure 2. Reporting Odds Ratios for Major Adverse Event Categories",
+    x = "Reporting Odds Ratio (95% CI)",
+    y = "Adverse Event Category"
+  ) +
+  theme_minimal()
+
+plot1
+```
+
+```{r}
+# Exporting fig 2 as png file
+
+ggsave("Figure2_ROR_Forest_Plot.png", plot1, width = 9, height = 4, dpi = 600)
+```
+
+```{r}
+# 2. Generating fig.3 Sub-group Forest Plot (Age and Sex)
+
+plot2_data <- final_results2 %>%
+  mutate(label = paste(Group, Event, sep = ": "),
+         label = factor(label, levels = rev(unique(label))))
+
+plot2 <- ggplot(plot2_data, aes(x = ROR, y = label)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.2) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  labs(
+    title = "Figure 3. Disproportionality Signals by Age and Sex",
+    x = "Reporting Odds Ratio (95% CI)",
+    y = "Subgroup and Event"
+  ) +
+  theme_minimal()
+
+plot2
+```
+
+```{r}
+# Exporting fig 3 as png file
+
+ggsave("Figure3_Subgroup_Forest_Plot.png", plot2, width = 9, height = 4, dpi = 600)
+```
+
+```{r}
+# 3. Generating fig.4 Distribution of adverse events
+
+plot3 <- ggplot(event_distribution, aes(x = event_category, y = n, fill = event_category)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  labs(
+    title = "Figure 4. Distribution of Adverse Event Categories",
+    x = "Adverse Event Category",
+    y = "Number of Reports",
+    fill = "Event Category"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "right",
+    axis.text.x = element_text(angle = 20, hjust = 1)
+  )
+
+plot3
+```
+
+```{r}
+# Exporting fig 4 as png file
+ggsave(
+  "Figure4_Event_Distribution.png",
+  plot3,
+  width = 8,
+  height = 5,
+  dpi = 600
+)
+```
 
 
 
